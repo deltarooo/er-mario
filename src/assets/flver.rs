@@ -8,13 +8,15 @@ use std::collections::HashMap;
 use super::model::{MarioModel, Tri};
 
 /// SM64 part -> FLVER bone (bones the chest piece skins natively); same list as engine_mario.rs.
-pub const PART_BONES: [&str; 21] = [
+pub const PART_BONES: [&str; 22] = [
     "", "Pelvis_Mantle", "Spine2", "Neck", "L_ShoulderArmor", "L_Pectoral", "Collar", "R_Shoulder", "R_Pectoral",
     "Spine2_Mantle", "L_Hip", "SpineArmor1", "Spine_Mantle", "R_Hip", "SpineArmor2", "L_Shoulder",
     // eye variants (open, half, closed, dead)
     "L_UpArmTwist", "L_Elbow", "L_ForeArmTwist", "L_ForeArmTwist1",
     // the peace-sign right hand (star dance)
     "R_Elbow",
+    // Independently hidden skateboard on a verified unused leaf skin bone.
+    "R_Calf",
 ];
 /// SM64 units -> metres, times Mario's 0.25 model scale
 const UNIT: f64 = 0.01 * 0.25;
@@ -254,6 +256,7 @@ pub fn mario_vertices(model: &MarioModel) -> (Vec<Vertex>, Vec<[u16; 3]>) {
             tris.push(tri);
         }
     }
+    super::skateboard::append(&mut verts, &mut tris, &colors);
     (verts, tris)
 }
 
@@ -317,6 +320,13 @@ pub fn build_mario(mut f: Flver, model: &MarioModel, target: usize) -> Result<Ve
         .map(|n| if n.is_empty() { Some(0) } else { names.iter().position(|b| b == n) })
         .collect::<Option<Vec<usize>>>()
         .ok_or("the chest piece's skeleton is not the expected one")?;
+    let parents: Vec<i16> = (0..f.bones).map(|b| {
+        let a = f.bone_off+b*0x80+0x1C;
+        i16::from_le_bytes(f.d[a..a+2].try_into().unwrap())
+    }).collect();
+    if !super::skateboard::safe_attachment(&parents,&bone_ids) {
+        return Err("skateboard bone must be a separate attachment with byte-sized skin indices".into());
+    }
     // identity binds, so the hierarchy composes to identity for our bones
     for b in 0..f.bones {
         let a = f.bone_off + b * 0x80;

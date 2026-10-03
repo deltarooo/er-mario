@@ -24,6 +24,7 @@ mod names;
 mod notes;
 mod paths;
 mod sm64;
+mod skate;
 mod swing;
 mod stats;
 mod update;
@@ -49,7 +50,7 @@ use windows::Win32::UI::Input::KeyboardAndMouse::GetAsyncKeyState;
 use windows::Win32::UI::Input::XboxController::{
     XINPUT_GAMEPAD_A, XINPUT_GAMEPAD_B, XINPUT_GAMEPAD_LEFT_SHOULDER,
     XINPUT_GAMEPAD_BACK, XINPUT_GAMEPAD_START, XINPUT_GAMEPAD_X, XINPUT_GAMEPAD_Y,
-    XINPUT_STATE,
+    XINPUT_GAMEPAD_RIGHT_SHOULDER, XINPUT_GAMEPAD_DPAD_LEFT, XINPUT_STATE,
 };
 use windows::Win32::System::LibraryLoader::{GetModuleHandleW, GetProcAddress};
 use windows::core::{PCSTR, w};
@@ -154,6 +155,11 @@ fn xinput_filter(index: u32, state: *mut XINPUT_STATE, rc: u32) -> u32 {
         if !ON_LADDER.load(Ordering::Relaxed) {
             g.sThumbLX = 0;
             g.sThumbLY = 0;
+        }
+        if skate::enabled() { g.wButtons &= !XINPUT_GAMEPAD_DPAD_LEFT; }
+        if skate::visual().mounted {
+            g.wButtons &= !(XINPUT_GAMEPAD_X | XINPUT_GAMEPAD_RIGHT_SHOULDER);
+            g.bLeftTrigger = 0;
         }
         // with the SM64 camera the right stick is Lakitu's C-buttons, not Elden Ring's camera
         if lakitu::ON.load(Ordering::Relaxed) {
@@ -1119,10 +1125,10 @@ fn input_task() {
         let stick = (g.sThumbLX as i32).abs() > 12000 || (g.sThumbLY as i32).abs() > 12000;
         pressed |= b.contains(XINPUT_GAMEPAD_A)
             || b.contains(XINPUT_GAMEPAD_B)
-            || b.contains(XINPUT_GAMEPAD_X)
+            || (b.contains(XINPUT_GAMEPAD_X) && (menu || !skate::visual().mounted))
             || b.contains(XINPUT_GAMEPAD_Y)
             || b.contains(XINPUT_GAMEPAD_LEFT_SHOULDER)
-            || g.bLeftTrigger > 100
+            || (g.bLeftTrigger > 100 && (menu || !skate::visual().mounted))
             || g.bRightTrigger > 100
             || (menu && stick);
         opener |= b.contains(XINPUT_GAMEPAD_START) || b.contains(XINPUT_GAMEPAD_BACK);
@@ -1131,7 +1137,7 @@ fn input_task() {
         let key = |vk: i32| unsafe { GetAsyncKeyState(vk) } as u16 & 0x8000 != 0;
         // Esc (menu), G (map); E interact, Space, F, R, Q, Enter, mouse buttons, and WASD in menus
         opener |= key(0x1B) || key(0x47);
-        pressed |= [0x45, 0x20, 0x46, 0x52, 0x51, 0x0D, 0x01, 0x02].into_iter().any(key)
+        pressed |= [0x45, 0x20, 0x46, 0x52, 0x51, 0x0D, 0x01, 0x02].into_iter().filter(|&vk| vk != 0x52 || menu || !skate::visual().mounted).any(key)
             || (menu && [0x57, 0x41, 0x53, 0x44].into_iter().any(key));
     }
     // the game's own "a menu is up" (pause menu, prompts): the most reliable signal, both ways
@@ -1753,6 +1759,14 @@ fn frame(data: &FD4TaskData) {
         None
     };
     hud::set(wedges.min(8), hide_why, true);
+    if skate::enabled() {
+        static SUSPENDED: AtomicBool = AtomicBool::new(false);
+        let blocked = m.dead || loading || paused || MENU_OPEN.load(Ordering::Relaxed)
+            || FOLLOWING.load(Ordering::Relaxed) || lakitu::first_person() || !kbd::focused();
+        if blocked && !SUSPENDED.swap(blocked, Ordering::Relaxed) {
+            worker::call("skate suspend", |_| skate::suspend());
+        } else if !blocked { SUSPENDED.store(false, Ordering::Relaxed); }
+    }
     // the tail swing: watch the bosses' stance, carry / throw / fly the grabbed one
     swing::watch_stances(&combat::boss_handles());
     {
@@ -1929,6 +1943,8 @@ fn frame(data: &FD4TaskData) {
     while m.acc >= 1.0 / 30.0 {
         m.acc -= 1.0 / 30.0;
         SM64_TICKS.fetch_add(1, Ordering::Relaxed);
+        let riding = skate::visual().mounted;
+        let (mut skate_toggle, mut skate_push, mut skate_brake, mut skate_ollie, mut skate_steer, mut skate_trick) = (false, false, false, false, 0.0f32, 0u32);
         let mut inputs = sm64::SM64MarioInputs::default();
         if let Some(p) = pad.filter(|_| !m.dead) {
             let g = p.Gamepad;
@@ -1938,6 +1954,12 @@ fn frame(data: &FD4TaskData) {
             };
             inputs.stick_x = axis(g.sThumbLX);
             inputs.stick_y = -axis(g.sThumbLY);
+            skate_toggle = skate::enabled() && g.wButtons.contains(XINPUT_GAMEPAD_DPAD_LEFT);
+            skate_push = g.wButtons.contains(XINPUT_GAMEPAD_A);
+            skate_brake = g.wButtons.contains(XINPUT_GAMEPAD_B);
+            skate_ollie = g.wButtons.contains(XINPUT_GAMEPAD_X);
+            skate_steer = -axis(g.sThumbLX);
+            skate_trick = if g.bLeftTrigger > 100 { 3 } else if g.wButtons.contains(XINPUT_GAMEPAD_RIGHT_SHOULDER) { 2 } else { 0 };
             inputs.button_a = g.wButtons.contains(XINPUT_GAMEPAD_A) as u8;
             inputs.button_b = (g.wButtons.contains(XINPUT_GAMEPAD_X) || g.wButtons.contains(XINPUT_GAMEPAD_B)) as u8;
             inputs.button_z = (g.wButtons.contains(XINPUT_GAMEPAD_LEFT_SHOULDER) || g.bLeftTrigger > 100) as u8;
@@ -1956,10 +1978,21 @@ fn frame(data: &FD4TaskData) {
                 inputs.stick_y = k.stick_y;
             }
             if !menu_walk {
+                skate_toggle |= skate::enabled() && k.skate_toggle;
+                skate_push |= k.a;
+                skate_brake |= k.b;
+                skate_ollie |= k.skate_ollie;
+                if skate_steer == 0.0 { skate_steer = -k.stick_x; }
+                if skate_trick == 0 { skate_trick = k.skate_trick; }
                 inputs.button_a |= k.a as u8;
                 inputs.button_b |= k.b as u8;
                 inputs.button_z |= k.z as u8;
             }
+        }
+        if riding || skate_toggle {
+            inputs.button_a = 0;
+            inputs.button_b = 0;
+            inputs.button_z = 0;
         }
         if let Ok(cam) = unsafe { CSCamera::instance() } {
             // the SM64 camera's direction when it's on (the game's own camera keeps running
@@ -2134,6 +2167,9 @@ fn frame(data: &FD4TaskData) {
         let stagger_cue = swing::take_cue();
         let action_before = m.state.action;
         let alive = !m.dead;
+        let skate_allowed = alive && kbd::focused() && !MENU_OPEN.load(Ordering::Relaxed)
+            && !FOLLOWING.load(Ordering::Relaxed) && !lakitu::first_person()
+            && !swing::holding();
         let hurt_from = targets
             .iter()
             .min_by(|a, b| {
@@ -2243,6 +2279,8 @@ fn frame(data: &FD4TaskData) {
                 unsafe { sm64::sm64_set_mario_health(id, 0x880) };
                 unsafe { sm64::sm64_play_sound_global(SOUND_HEART) };
             }
+            unsafe { sm64::sm64_er_skate_input(skate_allowed as u32, skate_toggle as u32,
+                skate_push as u32, skate_brake as u32, skate_ollie as u32, skate_steer, skate_trick); }
             let mut state = sm64::SM64MarioState::default();
             {
                 let mut buffers = ctx.geo.buffers();
@@ -2262,7 +2300,12 @@ fn frame(data: &FD4TaskData) {
             let right_hand = tri_part[..ctx.geo.used()].iter().filter(|&&p| p == 9).count();
             let peace = right_hand > engine_mario::FIST_TRIANGLES;
             let eye_cell = eye_cell(&ctx.geo.uv, ctx.geo.used());
-            let parts = engine_mario::relative_parts(&mats, count, state.position, eye_cell, peace);
+            skate::publish();
+            let mut parts = engine_mario::relative_parts(&mats, count, state.position, eye_cell, peace);
+            let board = skate::visual();
+            if let Some(parts) = parts.as_mut().filter(|_| board.mounted) {
+                engine_mario::skate_pose(parts, board.speed, board.airborne, board.lean, board.push_phase, board.trick, board.trick_progress);
+            }
             let hits = if alive { combat::hits(id, &state, &target_pos, &no_stomp) } else { Vec::new() };
             (state, ctx.geo.position[..n].to_vec(), ctx.geo.color[..n].to_vec(), ctx.geo.normal[..n].to_vec(), parts, hits)
         });

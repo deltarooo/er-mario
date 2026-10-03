@@ -483,6 +483,16 @@ impl ImguiRenderLoop for Overlay {
             }
         }
 
+        let board = crate::skate::visual();
+        if board.enabled {
+            let label = if board.mounted {
+                format!("Skate {:.1} m/s  {}  X ollie / airborne: RB flip, LT shuv-it", board.speed * 0.30,
+                    match board.trick { 2 => "Kickflip", 3 => "Shuv-it", 1 => "Ollie", _ => "A push / B brake" })
+            } else if board.bail_ticks > 0 { "Skate: recover before remounting".into() }
+            else { "Skate: D-pad Left / V to mount".into() };
+            dl.add_text([size[0] * 0.5 + 50.0 * px, size[1] - 110.0 * px], [0.9, 0.85, 0.35, 1.0], label);
+        }
+
         // enemy health bars (Elden Ring's style: dark frame, red HP, yellow for the combo's damage)
         // over the heads of what Mario hit, with the combo's damage in SM64's digits
         for tag in TAGS.lock().unwrap_or_else(|e| e.into_inner()).iter() {

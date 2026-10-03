@@ -9,17 +9,11 @@ use glam::{Mat3, Quat, Vec3};
 
 use crate::{explore, log};
 
-/// SM64 part -> skeleton bone (same list as tools/build_mario_parts.py).
-const PART_BONES: [&str; PARTS] = [
-    "", "Pelvis_Mantle", "Spine2", "Neck", "L_ShoulderArmor", "L_Pectoral", "Collar", "R_Shoulder", "R_Pectoral", "Spine2_Mantle", "L_Hip", "SpineArmor1", "Spine_Mantle", "R_Hip", "SpineArmor2", "L_Shoulder",
-    // eye variants (open, half, closed, dead): only the one SM64 is drawing is shown
-    "L_UpArmTwist", "L_Elbow", "L_ForeArmTwist", "L_ForeArmTwist1",
-    // the peace-sign right hand (star dance), shown instead of the fist
-    "R_Elbow",
-];
+/// Renderer and asset builder share the part-to-bone mapping.
+const PART_BONES: [&str; PARTS] = crate::assets::flver::PART_BONES;
 /// SM64's body parts (0..16) plus the eye variants (16..20).
 pub const SM64_PARTS: usize = 16;
-pub const PARTS: usize = 21;
+pub const PARTS: usize = 22;
 /// SM64's right hand part, and our peace-sign copy of it
 const RIGHT_HAND: usize = 9;
 const PEACE: usize = 20;
@@ -77,7 +71,212 @@ pub fn relative_parts(mats: &[f32], count: i32, mario: [f32; 3], eye_cell: u8, p
         let pos = if cell == eye_cell { head.pos } else { head.pos + head.rot * EYE_TUCK };
         out[SM64_PARTS + k] = PartPose { pos, ..head };
     }
+    out[crate::assets::skateboard::BOARD] = PartPose { scale:0.001, ..out[2] };
     Some(out)
+}
+
+/// Original skating stance, with both feet on the separate deck and arms balancing.
+/// Native mechanics own movement/actions; this changes only the rendered pose.
+pub fn skate_pose(parts: &mut [PartPose; PARTS], speed: f32, airborne: bool, lean: f32,
+    push_phase: f32, trick: u32, trick_progress: f32) {
+    let torso = parts[2];
+    let mut up = (torso.rot * -Vec3::X).normalize_or_zero();
+    if up.length_squared() < 0.5 { up = Vec3::Y; }
+    let forward = (torso.rot * Vec3::Y).normalize_or_zero();
+    let across = forward.cross(up).normalize_or_zero();
+    let axes = Mat3::from_cols(-up, forward, across);
+    let rot = Quat::from_mat3(&axes).normalize();
+    let feet = (parts[12].pos + parts[15].pos) * 0.5;
+    let board = PartPose { rot, pos: feet - up * 0.035, scale: 1.0 };
+    parts[crate::assets::skateboard::BOARD] = board;
+    let crouch = if airborne { 0.08 } else { 0.035 + speed.abs().min(100.0) * 0.00045 };
+    // Native animation supplies a neutral skating body; lower the upper body into a stance.
+    for part in [1,2,3,4,5,6,7,8,9,16,17,18,19,20] {
+        parts[part].pos -= up * crouch;
+    }
+    for (thigh, shin, shoe, sign) in [(10,11,12,-1.0),(13,14,15,1.0)] {
+        let hip = parts[thigh].pos;
+        let knee = feet + forward * (sign * 0.14 + 0.055) + across * (sign * 0.04) + up * 0.16;
+        let foot = feet + forward * (sign * 0.14) + across * (sign * 0.04);
+        let orient = |from: Vec3, to: Vec3| if from.length_squared()>1e-8 && to.length_squared()>1e-8 {
+            Quat::from_rotation_arc(from.normalize(),to.normalize())
+        } else { Quat::IDENTITY };
+        parts[thigh].rot = orient(parts[shin].pos-hip,knee-hip) * parts[thigh].rot;
+        parts[shin].rot = orient(parts[shoe].pos-parts[shin].pos,foot-knee) * parts[shin].rot;
+        parts[shin].pos = knee;
+        parts[shoe].pos = foot;
+        parts[shoe].rot = Quat::from_axis_angle(up, sign * 0.85) * parts[shoe].rot;
+    }
+    for (upper, lower, hand, sign) in [(4,5,6,-1.0),(7,8,9,1.0)] {
+        let shoulder = parts[upper].pos;
+        let elbow = shoulder + across * (sign * 0.14) + forward * 0.02 - up * 0.03;
+        let wrist = elbow + across * (sign * 0.12) + forward * 0.08;
+        let orient = |from: Vec3, to: Vec3| if from.length_squared()>1e-8 && to.length_squared()>1e-8 {
+            Quat::from_rotation_arc(from.normalize(),to.normalize())
+        } else { Quat::IDENTITY };
+        parts[upper].rot = orient(parts[lower].pos-shoulder,elbow-shoulder) * parts[upper].rot;
+        parts[lower].rot = orient(parts[hand].pos-parts[lower].pos,wrist-elbow) * parts[lower].rot;
+        parts[lower].pos = elbow;
+        parts[hand].pos = wrist;
+    }
+    parts[PEACE].scale = 0.001;
+    if !airborne && push_phase.is_finite() && push_phase >= 0.0 {
+        let phase = push_phase.clamp(0.0,1.0);
+        let stroke = (phase * std::f32::consts::PI).sin().max(0.0);
+        // Trace an open loop: plant early, sweep back, then visibly lift on the return.
+        let cycle = (phase * std::f32::consts::TAU).sin();
+        let sweep = 0.30 * stroke - 0.11 * cycle;
+        let recovery = 0.12 * (-cycle).max(0.0);
+        let target = parts[12].pos - forward * sweep
+            - across * (0.16 * stroke) + up * (recovery - 0.075 * stroke);
+        let planted = parts[15].pos;
+        let balance = -up * (0.13 * stroke) - forward * (0.11 * stroke);
+        for (i, part) in parts.iter_mut().enumerate().skip(1) {
+            if i == crate::assets::skateboard::BOARD { continue; }
+            part.pos += balance;
+        }
+        skate_leg_target(parts,10,11,12,target,forward);
+        skate_leg_target(parts,13,14,15,planted,forward);
+        // Counterbalance the pushing leg with a small shoulder and hand motion.
+        for i in [4,5,6] { parts[i].pos += forward * (0.065 * stroke); }
+        for i in [7,8,9] { parts[i].pos -= forward * (0.065 * stroke); }
+    }
+    if airborne && matches!(trick,1..=3) && trick_progress.is_finite() {
+        let phase = trick_progress.clamp(0.0,1.0);
+        let lift = (phase * std::f32::consts::PI).sin().max(0.0) * 0.20;
+        for (i, part) in parts.iter_mut().enumerate().skip(1) {
+            if i == crate::assets::skateboard::BOARD { continue; }
+            part.pos += up * lift;
+        }
+        let spin = match trick {
+            2 => Quat::from_axis_angle(forward,phase * std::f32::consts::TAU),
+            3 => Quat::from_axis_angle(up,phase * std::f32::consts::PI),
+            _ => Quat::IDENTITY,
+        };
+        parts[crate::assets::skateboard::BOARD].rot = spin * board.rot;
+    }
+    // Carve around the deck's forward axis, keeping the native head and eyes together.
+    let lean = if lean.is_finite() { lean.clamp(-1.0, 1.0) } else { 0.0 };
+    let carve = Quat::from_axis_angle(forward, lean * 0.22);
+    for part in parts.iter_mut().skip(1) {
+        part.pos = board.pos + carve * (part.pos - board.pos);
+        part.rot = carve * part.rot;
+    }
+}
+
+/// Keep the pushing leg's segment lengths while moving its shoe off the deck.
+fn skate_leg_target(parts: &mut [PartPose; PARTS], thigh: usize, shin: usize, shoe: usize,
+    target: Vec3, bend_axis: Vec3) {
+    let hip = parts[thigh];
+    let knee = parts[shin];
+    let foot = parts[shoe];
+    let a = hip.pos.distance(knee.pos);
+    let b = knee.pos.distance(foot.pos);
+    if a <= 0.001 || b <= 0.001 { return; }
+    let direction = (target - hip.pos).normalize_or_zero();
+    if direction.length_squared() < 0.5 { return; }
+    let distance = hip.pos.distance(target).clamp((a-b).abs()+0.0001,a+b-0.0001);
+    let along = (a*a-b*b+distance*distance) / (2.0*distance);
+    let height = (a*a-along*along).max(0.0).sqrt();
+    let raw_bend = knee.pos - hip.pos;
+    let mut bend = (raw_bend-direction*raw_bend.dot(direction)).normalize_or_zero();
+    if bend.length_squared() < 0.5 {
+        bend = (bend_axis-direction*bend_axis.dot(direction)).normalize_or_zero();
+    }
+    let joint = hip.pos+direction*along+bend*height;
+    let end = hip.pos+direction*distance;
+    let orient = |from: Vec3,to: Vec3| if from.length_squared()>1e-8 && to.length_squared()>1e-8 {
+        Quat::from_rotation_arc(from.normalize(),to.normalize())
+    } else { Quat::IDENTITY };
+    parts[thigh].rot = orient(knee.pos-hip.pos,joint-hip.pos) * hip.rot;
+    parts[shin].rot = orient(foot.pos-knee.pos,end-joint) * knee.rot;
+    parts[shin].pos = joint;
+    parts[shoe].pos = end;
+}
+
+
+#[cfg(test)]
+mod skate_tests {
+    use super::*;
+    fn fixture() -> [PartPose; PARTS] {
+        let rot = Quat::from_mat3(&Mat3::from_cols(-Vec3::Y, Vec3::Z, -Vec3::X));
+        let mut parts = [PartPose {rot,pos:Vec3::new(0.0,0.5,0.0),scale:1.0}; PARTS];
+        parts[12].pos = Vec3::new(-0.1,0.12,0.0);
+        parts[15].pos = Vec3::new(0.1,0.12,0.0);
+        parts
+    }
+    #[test]
+    fn push_recovers_to_deck_and_preserves_both_leg_segment_lengths() {
+        let mut rest = fixture();
+        skate_pose(&mut rest,50.0,false,0.0,-1.0,0,0.0);
+        let upper = rest[10].pos.distance(rest[11].pos);
+        let lower = rest[11].pos.distance(rest[12].pos);
+        for phase in [0.0,0.25,0.5,0.75,1.0,-1.0,f32::INFINITY,f32::NAN] {
+            let mut parts = fixture();
+            skate_pose(&mut parts,50.0,false,0.0,phase,0,0.0);
+            assert!((parts[10].pos.distance(parts[11].pos)-upper).abs()<1e-4);
+            assert!((parts[11].pos.distance(parts[12].pos)-lower).abs()<1e-4);
+            assert!(parts[15].pos.distance(rest[15].pos)<1e-4);
+            assert!(parts[crate::assets::skateboard::BOARD].pos.distance(rest[crate::assets::skateboard::BOARD].pos)<1e-5);
+            assert!(parts.iter().all(|p| p.pos.is_finite() && p.rot.is_finite()));
+            if phase == 0.5 {
+                assert!(parts[12].pos.z < rest[12].pos.z - 0.15);
+                assert!(parts[12].pos.x > rest[12].pos.x + 0.10);
+                assert!(parts[12].pos.y < rest[12].pos.y);
+            }
+            if phase == 0.75 {
+                assert!(parts[12].pos.y > rest[12].pos.y + 0.04);
+            }
+            if phase == 0.0 || phase == 1.0 || phase < 0.0 || !phase.is_finite() {
+                assert!(parts[12].pos.distance(rest[12].pos)<1e-4);
+            }
+        }
+    }
+    #[test]
+    fn tricks_spin_only_the_board_and_clear_it_before_returning_to_contact() {
+        let mut rest = fixture();
+        skate_pose(&mut rest,50.0,true,0.0,-1.0,0,0.0);
+        let initial = rest[crate::assets::skateboard::BOARD];
+        for trick in [1,2,3] {
+            for phase in [0.0,0.25,0.5,0.75,1.0,20.0,-20.0,f32::NAN] {
+                let mut parts = fixture();
+                skate_pose(&mut parts,50.0,true,0.0,-1.0,trick,phase);
+                let board = parts[crate::assets::skateboard::BOARD];
+                assert!(board.pos.distance(initial.pos)<1e-5);
+                assert!(parts.iter().all(|p| p.pos.is_finite() && p.rot.is_finite()));
+                if phase == 0.5 {
+                    assert!(parts[12].pos.y > board.pos.y+0.20);
+                    assert!(parts[15].pos.y > board.pos.y+0.20);
+                }
+                if phase == 1.0 {
+                    assert!(parts[12].pos.distance(rest[12].pos)<1e-4);
+                    if trick == 3 {
+                        assert!((board.rot*Vec3::Y).dot(initial.rot*Vec3::Y)< -0.999);
+                    } else {
+                        assert!(board.rot.dot(initial.rot).abs()>0.999);
+                    }
+                }
+            }
+        }
+    }
+    #[test]
+    fn stance_plants_both_feet_on_the_deck() {
+        let rot = Quat::from_mat3(&Mat3::from_cols(-Vec3::Y, Vec3::Z, -Vec3::X));
+        for (airborne, lean) in [(false,0.0),(false,-1.0),(true,1.0),(true,f32::NAN),(false,20.0)] {
+            let mut parts = [PartPose {rot, pos:Vec3::new(0.0,0.5,0.0),scale:1.0}; PARTS];
+            parts[12].pos = Vec3::new(-0.1,0.12,0.0);
+            parts[15].pos = Vec3::new(0.1,0.12,0.0);
+            skate_pose(&mut parts,80.0,airborne,lean,-1.0,0,0.0);
+            let board = parts[crate::assets::skateboard::BOARD];
+            assert_eq!(board.scale,1.0);
+            for shoe in [12,15] {
+                let local = board.rot.inverse() * (parts[shoe].pos - board.pos);
+                assert!((local.x + 0.035).abs()<1e-5);
+                assert!(local.y.abs()<0.32 && local.z.abs()<0.13);
+            }
+            assert!(parts.iter().all(|p| p.pos.is_finite() && p.rot.is_finite()));
+        }
+    }
 }
 
 pub fn blend(a: &[PartPose; PARTS], b: &[PartPose; PARTS], t: f32) -> [PartPose; PARTS] {

@@ -75,6 +75,27 @@ to blank it out.
   Nothing is downloaded or installed automatically. `update_check = off` in er_mario.ini turns the
   check off.
 
+## Experimental skating
+
+Set `skateboard = on` in `er_mario.ini` and restart to enable skating (off by default).
+**D-pad Left / V** mounts or dismounts while safely grounded. While riding:
+
+- **A / L / right mouse:** push; release to coast.
+- **Left stick / A-D:** steer; **B / comma / left mouse:** brake.
+- **X / R:** ollie. After takeoff, press **RB / J** alone for a kickflip or **LT / P** alone for a shuv-it.
+
+Release trick buttons before takeoff. One board trick is allowed per airtime;
+tricks add no lift or speed. Rolling off a ledge also allows an airborne trick.
+Mario pushes with his rear foot while his front foot stays planted, and lifts his
+feet while the separate board flips or turns beneath him. Slopes affect momentum;
+riding uses the normal ground/air collision steps and retains fall damage.
+Hits, forced actions, menus, focus loss and travel dismount him. Release the mount
+button before mounting again. Dismount to use Mario's usual moves.
+
+This is original code and procedural geometry. No Skate 3 code or assets are included.
+Manuals and rail grinding are not implemented. Updating rebuilds the local model
+assets once; restart after setup completes, as with a first installation.
+
 ## Building
 
 Windows, with [Rust](https://rustup.rs), Visual Studio Build Tools (C++),

@@ -26,6 +26,12 @@ pub static CAPTURE: AtomicBool = AtomicBool::new(false);
 /// DirectInput scancodes the game must not see in Mario mode: W A S D, L, comma, K
 const HIDDEN: [u32; 7] = [0x11, 0x1E, 0x1F, 0x20, 0x26, 0x33, 0x25];
 
+fn hidden(k: u32) -> bool {
+    HIDDEN.contains(&k) || (!crate::MENU_OPEN.load(Ordering::Relaxed) && (
+        (crate::skate::enabled() && k == 0x2F)
+        || (crate::skate::visual().mounted && matches!(k, 0x13 | 0x24 | 0x19))))
+}
+
 const VK_W: i32 = 0x57;
 const VK_A: i32 = 0x41;
 const VK_S: i32 = 0x53;
@@ -49,6 +55,9 @@ pub fn focused() -> bool {
 }
 
 pub struct Keys {
+    pub skate_toggle: bool,
+    pub skate_ollie: bool,
+    pub skate_trick: u32,
     pub stick_x: f32,
     pub stick_y: f32,
     pub a: bool,
@@ -66,6 +75,9 @@ pub fn read() -> Option<Keys> {
     // full tilt diagonally too, like a stick pushed into the corner
     let len = (x * x + y * y).sqrt().max(1.0);
     Some(Keys {
+        skate_toggle: down(0x56),
+        skate_ollie: down(0x52),
+        skate_trick: if down(0x50) { 3 } else if down(0x4A) { 2 } else { 0 },
         stick_x: x / len,
         stick_y: y / len,
         a: down(VK_L) || down(VK_RBUTTON),
@@ -139,8 +151,8 @@ pub unsafe fn install_hooks() {
             let f: unsafe extern "system" fn(u64, u32, *mut u8) -> i32 = unsafe { std::mem::transmute(original) };
             let rc = unsafe { f(this, size, data) };
             if rc >= 0 && size == 256 && !data.is_null() && CAPTURE.load(Ordering::Relaxed) {
-                for &k in &HIDDEN {
-                    unsafe { *data.add(k as usize) = 0 };
+                for k in HIDDEN.into_iter().chain([0x2Fu32, 0x13, 0x24, 0x19]) {
+                    if hidden(k) { unsafe { *data.add(k as usize) = 0 }; }
                 }
             }
             rc as u32 as usize
@@ -155,7 +167,7 @@ pub unsafe fn install_hooks() {
                 // DIDEVICEOBJECTDATA: dwOfs (the scancode), dwData (0x80 = pressed), ...
                 for i in 0..unsafe { *count } as usize {
                     let e = unsafe { data.add(i * obj as usize) };
-                    if HIDDEN.contains(&unsafe { *(e as *const u32) }) {
+                    if hidden(unsafe { *(e as *const u32) }) {
                         unsafe { *(e.add(4) as *mut u32) = 0 };
                     }
                 }

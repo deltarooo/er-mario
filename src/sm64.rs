@@ -134,6 +134,14 @@ impl Drop for GeometryGuard<'_> {
 }
 
 unsafe extern "C" {
+    // Worker-confined mode. Seven state words: enabled,mounted,air,trick,bail,
+    // push_phase(0idle/1..24),trick_ticks(0..20). Three motion floats: speed,
+    // signed lean,trick progress(0..1). Trick input0released/2kickflip/3shuvit; fresh airborne presses only.
+    pub fn sm64_er_skate_configure(enabled: u32);
+    pub fn sm64_er_skate_reset();
+    pub fn sm64_er_skate_input(allowed: u32, toggle: u32, push: u32, brake: u32, ollie: u32, steer: f32, trick: u32);
+    pub fn sm64_er_skate_get_state(out: *mut u32, motion: *mut f32);
+
     pub fn sm64_global_init(rom: *const u8, out_texture: *mut u8);
     pub fn sm64_static_surfaces_load(surfaces: *const SM64Surface, count: u32);
     pub fn sm64_mario_create(x: f32, y: f32, z: f32) -> i32;

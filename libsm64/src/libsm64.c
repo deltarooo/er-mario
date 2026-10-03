@@ -3,6 +3,7 @@
 #endif
 
 #include "libsm64.h"
+#include "er_skate.h"
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -51,6 +52,20 @@ struct MarioInstance
     struct GlobalState *globalState;
 };
 struct ObjPool s_mario_instance_pool = { 0, 0 };
+
+/* Internal worker-confined skating entry points; not public DLL exports. */
+void sm64_er_skate_configure(uint32_t enabled) { er_skate_configure(enabled); }
+void sm64_er_skate_reset(void) { er_skate_reset(); }
+void sm64_er_skate_input(uint32_t allowed, uint32_t toggle, uint32_t push, uint32_t brake, uint32_t ollie, float steer, uint32_t trick) {
+    er_skate_input(allowed, toggle, push, brake, ollie, steer, trick);
+}
+void sm64_er_skate_get_state(uint32_t *out, float *motion) {
+    out[0]=er_skate.enabled; out[1]=er_skate.mounted; out[2]=er_skate.airborne;
+    out[3]=er_skate.trick; out[4]=er_skate.bail_ticks;
+    out[5]=er_skate.push_phase; out[6]=er_skate.trick_ticks;
+    motion[0]=er_skate.speed; motion[1]=er_skate.lean;
+    motion[2]=(float)er_skate.trick_ticks / 20.0f;
+}
 
 static void update_button( bool on, u16 button )
 {
@@ -173,6 +188,7 @@ SM64_LIB_FN void sm64_static_surfaces_load( const struct SM64Surface *surfaceArr
 
 SM64_LIB_FN int32_t sm64_mario_create( float x, float y, float z )
 {
+    er_skate_reset();
     int32_t marioIndex = obj_pool_alloc_index( &s_mario_instance_pool, sizeof( struct MarioInstance ));
     struct MarioInstance *newInstance = s_mario_instance_pool.objects[marioIndex];
 
@@ -272,6 +288,7 @@ SM64_LIB_FN void sm64_mario_tick( int32_t marioId, const struct SM64MarioInputs 
 
 SM64_LIB_FN void sm64_mario_delete( int32_t marioId )
 {
+    er_skate_reset();
     if( marioId >= s_mario_instance_pool.size || s_mario_instance_pool.objects[marioId] == NULL )
     {
         DEBUG_PRINT("Tried to delete non-existant Mario with ID: %u", marioId);

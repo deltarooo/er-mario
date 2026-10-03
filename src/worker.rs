@@ -29,7 +29,9 @@ fn sender() -> &'static Mutex<Sender<Job>> {
         std::thread::spawn(move || {
             let mut ctx = Ctx { geo: Geometry::new() };
             while let Ok(job) = rx.recv() {
+                crate::skate::apply();
                 job(&mut ctx);
+                crate::skate::publish();
             }
         });
         Mutex::new(tx)
