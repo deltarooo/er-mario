@@ -788,7 +788,7 @@ fn havok_surfaces(h: &mut havok_col::HavokCollision, origin: [f32; 3], mario: [f
         let v = t.map(|p| {
             collision::er_to_sm(origin, &HavokPosition(p.x, p.y, p.z, 0.0)).map(|x| x.round() as i32)
         });
-        let Some(v) = collision_geometry::surface_vertices(v, mid, Some(mario)) else { continue };
+        let Some(v) = collision_geometry::body_surface_vertices(v, mid, mario, h.is_convex(*body) || h.is_boxed(*body)) else { continue };
         let mut surf = sm64::SM64Surface::grass(v);
         surf.force = *layer as i16;
         out.push(surf);

@@ -2,6 +2,14 @@
 //! Walls never pick their side from Mario's position: crossing a plane or refreshing the
 //! query must not turn the exterior of a rock into its interior.
 
+/// Only decoded convex hulls and synthetic boxes have a trustworthy interior point.
+/// A jump must not flip their sloped faces; open terrain and merely closed meshes retain
+/// the height heuristic because their vertex average need not be inside the solid.
+pub fn body_surface_vertices(v: [[i32; 3]; 3], center: Option<[f32; 3]>, mario: [f32; 3], convex_or_box: bool) -> Option<[[i32; 3]; 3]> {
+    let height_hint = if convex_or_box && center.is_some() { None } else { Some(mario) };
+    surface_vertices(v, center, height_hint)
+}
+
 pub fn surface_vertices(mut v: [[i32; 3]; 3], convex_center: Option<[f32; 3]>, mario: Option<[f32; 3]>) -> Option<[[i32; 3]; 3]> {
     // er_to_sm reflects X, which reverses handedness.
     v.swap(1, 2);
@@ -84,5 +92,24 @@ mod tests {
     fn quantized_degenerate_triangles_are_rejected() {
         assert_eq!(surface_vertices([[0; 3]; 3], None, None), None);
         assert_eq!(surface_vertices([[0; 3], [1; 3], [2; 3]], None, None), None);
+    }
+
+    #[test]
+    fn solid_sloped_face_keeps_its_exterior_through_a_jump() {
+        // A convex rock's inclined side (positive X and Y exterior) used to change
+        // facing when Mario crossed its height band during a collision refresh.
+        let face = [[100, -100, -100], [-100, 100, -100], [-100, 100, 100]];
+        let center = Some([0.0, -100.0, 0.0]);
+        let expected = body_surface_vertices(face, center, [200.0, -300.0, 0.0], true).unwrap();
+        assert!(normal(expected)[0] > 0 && normal(expected)[1] > 0);
+        for height in [-300.0, -100.0, 0.0, 200.0, 500.0] {
+            for input in [face, [face[0], face[2], face[1]]] {
+                let result = body_surface_vertices(input, center, [200.0, height, 0.0], true).unwrap();
+                assert!(normal(result)[0] > 0 && normal(result)[1] > 0);
+            }
+        }
+        // Open terrain and unproven closed meshes still distinguish overhead ground.
+        assert!(normal(body_surface_vertices(face, center, [200.0, -300.0, 0.0], false).unwrap())[1] < 0);
+        assert!(normal(body_surface_vertices(face, center, [200.0, 500.0, 0.0], false).unwrap())[1] > 0);
     }
 }
