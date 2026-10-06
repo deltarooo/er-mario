@@ -8,10 +8,8 @@ bosses, Bob-omb style enemy throws, SM64's health meter, coins and Lakitu's came
 
 Work in progress.
 
-You need your own Super Mario 64 ROM (US version): Mario's textures, sounds, animations and the
-menu icons come from it, built on your PC the first time you play. Like other
-[libsm64](https://github.com/libsm64/libsm64) projects, the mod itself includes Mario's 3D
-model (his mesh) from the public [SM64 decompilation](https://github.com/n64decomp/sm64).
+You need your own Super Mario 64 ROM (US version): Mario's model, textures, sounds, animations
+and the menu icons come from it, built on your PC the first time you play.
 
 ## Getting started
 
@@ -102,8 +100,9 @@ using [`cargo-xwin`](https://github.com/rust-cross/cargo-xwin) alongside standar
 Just `cargo install --locked cargo-xwin` and use `build.sh` instead of `build.ps1`.
 
 `import-mario-geo.py` (libsm64's own setup script) downloads Mario's model code, two files, from
-the SM64 decompilation once and strips their texture data (textures come from the player's ROM).
-The model code isn't part of this repository; it gets compiled into the DLL.
+the SM64 decompilation once and strips his vertices, light colours and textures out of them:
+those are read from the player's ROM when the game starts. What's left is the order his parts
+are drawn in. The model code isn't part of this repository.
 
 `build.ps1 -Dist <ER-Mario folder>` also copies the DLL into an ER-Mario folder (it renames
 the old DLL first, so it works while the game is running; the next start loads the new one).
@@ -115,8 +114,8 @@ The release zip is that folder without the generated `package` and `logs` folder
 ## License
 
 [MIT](LICENSE). This covers the mod's own code only, not Super Mario 64's or Elden Ring's
-content: Mario's textures, sounds and animations come from the player's ROM, his mesh from the
-SM64 decompilation (see above), and nothing of FromSoftware's is included. The `libsm64` folder
+content: Mario's model, textures, sounds and animations come from the player's ROM, and nothing
+of FromSoftware's is included. The `libsm64` folder
 keeps libsm64's own license, CC0 ([libsm64/LICENSE.md](libsm64/LICENSE.md)).
 
 ## Credits

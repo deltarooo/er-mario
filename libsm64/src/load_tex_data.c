@@ -7,6 +7,7 @@
 
 #include "decomp/tools/libmio0.h"
 #include "decomp/tools/n64graphics.h"
+#include "decomp/mario/model.inc.h"
 
 #define MARIO_TEX_ROM_OFFSET 1132368
 #define ATLAS_WIDTH (NUM_USED_TEXTURES * 64)
@@ -44,6 +45,9 @@ void load_mario_textures_from_rom( const uint8_t *rom, uint8_t *outTexture )
         blt_image_to_atlas( img, i, mario_tex_widths[i], mario_tex_heights[i], outTexture );
         free( img );
     }
+
+    // (Mario's vertices and light colours are in the same block: the model code has none)
+    mario_model_from_rom( out_buf, head.dest_size );
 
     free( out_buf );
 }
