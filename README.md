@@ -9,8 +9,7 @@ Work in progress.
 You need your own Super Mario 64 ROM (US version): Mario's textures, sounds, animations and the
 menu icons come from it, built on your PC the first time you play. Like other
 [libsm64](https://github.com/libsm64/libsm64) projects, the mod itself includes Mario's 3D
-model (his mesh) from the public [SM64 decompilation](https://github.com/n64decomp/sm64). This
-repository contains no Nintendo data.
+model (his mesh) from the public [SM64 decompilation](https://github.com/n64decomp/sm64).
 
 ## Getting started
 
