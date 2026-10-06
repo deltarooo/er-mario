@@ -104,12 +104,6 @@ The release zip is that folder without the generated `package` and `logs` folder
 
 
 
-## Support
-
-I make mods in my free time. If you like what I do and want to support it, you can
-[donate here](https://www.paypal.com/donate/?hosted_button_id=QXEBJARMQW59E). Totally optional,
-the mod is and stays free.
-
 
 ## License
 
