@@ -19,7 +19,9 @@ const NOTES: &str = concat!(
     "* Fixed the stutter framedrops many players had, especially on Windows.\n",
     "* Fixed Mario flicking between two directions with some controllers.\n",
     "* Fixed Yoshi not moving with keyboard controls.\n",
-    "* Fewer hitches when new areas load."
+    "* Fewer hitches when new areas load.\n",
+    "* Mario loses 2 pieces of health at most per hit.\n",
+    "* Punches and kicks do as much damage as ground pounds, and more on bosses."
 );
 
 /// Which version's notes were shown last.
