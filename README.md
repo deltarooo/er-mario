@@ -52,9 +52,6 @@ work through Steam Input, which Steam turns on for them by default.
 - Cutscenes show a crumpled Mario with the Tarnished's head.
 - Some big bosses' ragdolls go wild after a throw; the mod stops them early.
 - Mario's shadow can flicker or drop out from some camera angles in sunlight and moonlight.
-- With a controller, Mario can sometimes keep flicking between two directions while you
-  move, as if two sticks were steering him. Restart the game and it's gone. It seems to happen
-  when the controller connects or reconnects while the game is already running.
 
 ## Discord
 

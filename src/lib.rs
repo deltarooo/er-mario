@@ -24,6 +24,7 @@ mod throw_collision;
 mod trample;
 mod names;
 mod notes;
+mod pads;
 mod paths;
 mod perf;
 mod sm64;
@@ -157,27 +158,48 @@ fn xinput_hook(reg: *mut ilhook::x64::Registers, original: usize) -> usize {
     xinput_filter(index, state, rc) as usize
 }
 
+/// Which sticks are Mario's right now, so the game must not see them: (left, right). Every way
+/// the game reads a pad hides them (XInput here, DirectInput and libScePad in pads.rs): it
+/// merges all its pads, and one it still saw walked the Tarnished under Mario.
+pub(crate) fn hidden_sticks() -> (bool, bool) {
+    if !ENABLED.load(Ordering::Relaxed) || !IN_WORLD.load(Ordering::Relaxed) {
+        return (false, false);
+    }
+    if MENU_OPEN.load(Ordering::Relaxed) {
+        // a menu screen the character can walk in (input_task): the left stick walks Mario only
+        return (MENU_WALK.load(Ordering::Relaxed), false);
+    }
+    // buttons reach the game (menus need them; the Tarnished's actions are stripped in
+    // input_task); the left stick is Mario's alone outside menus (on a ladder the game climbs,
+    // on Torrent the game rides); with the SM64 camera the right stick is Lakitu's C-buttons,
+    // not Elden Ring's camera
+    (!ON_LADDER.load(Ordering::Relaxed) && !RIDING.load(Ordering::Relaxed), lakitu::ON.load(Ordering::Relaxed))
+}
+
 /// Real pad goes to Mario; the game gets an idle pad (right stick kept for the camera).
 fn xinput_filter(index: u32, state: *mut XINPUT_STATE, rc: u32) -> u32 {
-    if rc != 0 || state.is_null() || index != 0 {
+    if rc != 0 || state.is_null() || index > 3 {
         return rc;
     }
     let s = unsafe { &mut *state };
-    *PAD.lock().unwrap_or_else(|e| e.into_inner()) = Some((*s, std::time::Instant::now()));
-    if ENABLED.load(Ordering::Relaxed) && IN_WORLD.load(Ordering::Relaxed) && MENU_OPEN.load(Ordering::Relaxed) && MENU_WALK.load(Ordering::Relaxed) {
-        // a menu screen the character can walk in (input_task): the left stick walks Mario only
-        s.Gamepad.sThumbLX = 0;
-        s.Gamepad.sThumbLY = 0;
+    pads::xinput_seen(index, s);
+    // Mario plays with the first pad; the game reads all four and merges them, so every one's
+    // sticks are hidden (Proton can show one controller twice, e.g. Steam's virtual pad and the
+    // real one: the second one, untouched, walked the Tarnished under Mario)
+    if index == 0 {
+        *PAD.lock().unwrap_or_else(|e| e.into_inner()) = Some((*s, std::time::Instant::now()));
+    }
+    let (left, right) = hidden_sticks();
+    let g = &mut s.Gamepad;
+    if left {
+        g.sThumbLX = 0;
+        g.sThumbLY = 0;
+    }
+    if right {
+        g.sThumbRX = 0;
+        g.sThumbRY = 0;
     }
     if ENABLED.load(Ordering::Relaxed) && IN_WORLD.load(Ordering::Relaxed) && !MENU_OPEN.load(Ordering::Relaxed) {
-        // buttons reach the game (menus need them; the Tarnished's actions are stripped in
-        // input_task); the left stick is Mario's alone outside menus
-        let g = &mut s.Gamepad;
-        let riding = RIDING.load(Ordering::Relaxed);
-        if !ON_LADDER.load(Ordering::Relaxed) && !riding {
-            g.sThumbLX = 0;
-            g.sThumbLY = 0;
-        }
         // RB and RT whistle for Torrent (input_task); as the game's attack buttons, pressed in
         // the same frame, they kept the whistle from being used
         g.wButtons &= !XINPUT_GAMEPAD_RIGHT_SHOULDER;
@@ -185,15 +207,10 @@ fn xinput_filter(index: u32, state: *mut XINPUT_STATE, rc: u32) -> u32 {
         if WHISTLING.load(Ordering::Relaxed) {
             g.wButtons |= XINPUT_GAMEPAD_X;
         }
-        // with the SM64 camera the right stick is Lakitu's C-buttons, not Elden Ring's camera
-        if lakitu::ON.load(Ordering::Relaxed) {
-            g.sThumbRX = 0;
-            g.sThumbRY = 0;
-        }
         // Torrent goes where the game's own camera looks, which nobody sees with Lakitu's on:
         // the stick is turned by the angle between the two
         let turn = f32::from_bits(RIDE_TURN.load(Ordering::Relaxed));
-        if riding && turn.is_finite() {
+        if RIDING.load(Ordering::Relaxed) && turn.is_finite() {
             let (x, y) = (g.sThumbLX as f32, g.sThumbLY as f32);
             let (sin, cos) = turn.sin_cos();
             g.sThumbLX = (x * cos + y * sin).clamp(-32767.0, 32767.0) as i16;
@@ -3382,6 +3399,7 @@ pub unsafe extern "C" fn DllMain(hmodule: usize, reason: u32) -> bool {
         cs_task.run_recurring(guarded(pose_task), CSTaskGroupIndex::ChrIns_PrePhysics);
         cs_task.run_recurring(guarded(input_task), CSTaskGroupIndex::ChrIns_PreBehaviorSafe);
         cs_task.run_recurring(guarded(hud_task), CSTaskGroupIndex::GameFlowStep_Post);
+        cs_task.run_recurring(guarded(pads::task), CSTaskGroupIndex::GameFlowStep_Post);
         // our camera into the game's at every step from its camera update to drawing (it copies its
         // own back in between, and sets up culling and the sun shadow area from it)
         for group in [

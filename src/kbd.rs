@@ -106,7 +106,9 @@ fn is_keyboard(device: usize) -> bool {
 }
 
 /// Hooks the DirectInput device methods the game reads keys with (GetDeviceState for the whole
-/// keyboard, GetDeviceData for buffered key events).
+/// keyboard, GetDeviceData for buffered key events). dinput8 should share these methods across
+/// device types, so GetDeviceState also sees the game's DirectInput gamepads (pads.rs logs the
+/// first one it sees; if it never does, they don't go through here).
 pub unsafe fn install_hooks() {
     use ilhook::x64::{CallbackOption, HookFlags, hook_closure_retn};
     let result = (|| -> Result<(), String> {
@@ -142,6 +144,10 @@ pub unsafe fn install_hooks() {
                 for &k in &HIDDEN {
                     unsafe { *data.add(k as usize) = 0 };
                 }
+            }
+            // the same method reads gamepads (DIJOYSTATE / DIJOYSTATE2): pads.rs hides Mario's stick
+            if rc >= 0 && !data.is_null() && (size == 80 || size == 272) {
+                crate::pads::dinput_joystick(this as usize, data);
             }
             rc as u32 as usize
         };
