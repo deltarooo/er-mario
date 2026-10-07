@@ -99,6 +99,11 @@ cd ..
 .\build.ps1
 ```
 
+Linux can build the Windows DLL as well,
+using [`cargo-xwin`](https://github.com/rust-cross/cargo-xwin) alongside standard development packages
+`python3` `clang` and `llvm` (`sudo apt install` these on Debian/Ubuntu).
+Just `cargo install --locked cargo-xwin` and use `build.sh` instead of `build.ps1`.
+
 `import-mario-geo.py` (libsm64's own setup script) downloads Mario's model code, two files, from
 the SM64 decompilation once and strips their texture data (textures come from the player's ROM).
 The model code isn't part of this repository; it gets compiled into the DLL.
