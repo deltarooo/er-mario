@@ -54,6 +54,10 @@ work through Steam Input, which Steam turns on for them by default.
   move, as if two sticks were steering him. Restart the game and it's gone. It seems to happen
   when the controller connects or reconnects while the game is already running.
 
+## Discord
+
+Questions, clips and news about the mod: [Delta's shenanigans](https://discord.gg/6EvmBwXp4u).
+
 ## Reporting problems
 
 Open an [issue](https://github.com/deltarooo/er-mario/issues) and say what happened and
