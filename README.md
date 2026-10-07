@@ -34,6 +34,10 @@ Tested with an Xbox One controller, a PS5 controller (through Steam) and keyboar
 The mod reads controllers the way Xbox pads report them: PlayStation, Switch and other pads
 work through Steam Input, which Steam turns on for them by default.
 
+**Camera:** the mod uses SM64's Lakitu camera. Press **F9** in game to switch to Elden Ring's own
+camera and back. To start with Elden Ring's camera, set `camera = elden` in **er_mario.ini** in
+your ER-Mario folder.
+
 **LEVELING AND ITEMS DO NOT AFFECT ANYTHING**:
 - Every hit takes a fixed share of the enemy's max health (67% for a punch, a kick or a ground pound, a twentieth of that on bosses). Strength, Dexterity and weapons play no part. The small real hit the   mod fires for the final blow is a flat 10 damage with stat scaling switched off.
 - Mario's health is always the 8 SM64 wedges, whatever your Vigor.
