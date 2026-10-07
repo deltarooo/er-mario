@@ -128,5 +128,10 @@ keeps libsm64's own license, CC0 ([libsm64/LICENSE.md](libsm64/LICENSE.md)).
 - [hudhook](https://github.com/veeenu/hudhook) (MIT) by veeenu, for the overlay HUD
 - Item and inventory function patterns: The Grand Archives' Elden Ring cheat table
 
+Contributors:
+
+- [BenjaminMassey](https://github.com/BenjaminMassey): the fix for Mario flicking between two
+  directions with some controllers, and the Linux build script
+
 Super Mario 64 and Mario are Nintendo's. Elden Ring is FromSoftware's. This is a free fan mod,
 not affiliated with either.
