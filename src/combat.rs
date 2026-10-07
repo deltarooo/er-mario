@@ -933,7 +933,8 @@ impl Combat {
 
     /// Game thread: how the Tarnished's HP loss since the last check turns into Mario's health
     /// (his HP is refilled right after, so SM64's power meter is what counts): a real hit costs
-    /// wedges by its size with SM64's knockback, poison / bleed / rot ticks drain a wedge per 10%.
+    /// one or two wedges by its size with SM64's knockback, poison / bleed / rot ticks drain a
+    /// wedge per 10%.
     pub fn took_damage(&mut self, hp: i32, max: i32, scale: f32) -> Option<Hurt> {
         let lost = self.last_hp.map(|old| old - hp).unwrap_or(0);
         self.last_hp = Some(max);
@@ -942,7 +943,7 @@ impl Combat {
         }
         let frac = lost as f32 / max.max(1) as f32 * scale;
         if frac >= 0.04 {
-            return Some(Hurt::Hit(if frac < 0.25 { 1 } else if frac < 0.5 { 2 } else { 3 }));
+            return Some(Hurt::Hit(if frac < 0.25 { 1 } else { 2 }));
         }
         self.drain += frac;
         if self.drain >= 0.1 {
