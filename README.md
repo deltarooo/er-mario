@@ -1,5 +1,7 @@
 # ER Mario
 
+## [Join the Discord server](https://discord.gg/6EvmBwXp4u) for regular updates, news and help with the mod
+
 Play Elden Ring as Mario, with Super Mario 64's real movement. Triple jumps, wall kicks, long
 jumps, ground pounds, punches and kicks that hurt enemies, Bowser's tail swing on staggered
 bosses, Bob-omb style enemy throws, SM64's health meter, coins and Lakitu's camera.
