@@ -47,20 +47,20 @@ impl Attack {
     /// Share of a normal enemy's max HP per hit (%), and its er_mario.ini key.
     fn percent(self) -> (f32, &'static str) {
         match self {
-            Attack::Punch => (25.0, "damage_punch"),
-            Attack::Kick => (34.0, "damage_kick"),
-            Attack::Sweep => (34.0, "damage_sweep"),
+            Attack::Punch => (67.0, "damage_punch"),
+            Attack::Kick => (67.0, "damage_kick"),
+            Attack::Sweep => (67.0, "damage_sweep"),
             Attack::Dash => (34.0, "damage_dive"),
             Attack::Stomp => (50.0, "damage_stomp"),
             Attack::GroundPound => (67.0, "damage_ground_pound"),
         }
     }
 
-    /// On bosses the quick hits count for a bit more than their share: with a twentieth of it
-    /// each, only ground pounds and stomps were worth doing.
+    /// On bosses the close hits count for more than a ground pound: Mario has to stand right in
+    /// front of them to land one.
     fn boss_bonus(self) -> f32 {
         match self {
-            Attack::Punch | Attack::Kick | Attack::Sweep => 1.2,
+            Attack::Punch | Attack::Kick | Attack::Sweep => 1.5,
             Attack::Dash => 1.1,
             Attack::Stomp | Attack::GroundPound => 1.0,
         }

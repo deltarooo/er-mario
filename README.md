@@ -35,7 +35,7 @@ The mod reads controllers the way Xbox pads report them: PlayStation, Switch and
 work through Steam Input, which Steam turns on for them by default.
 
 **LEVELING AND ITEMS DO NOT AFFECT ANYTHING**:
-- Every hit takes a fixed share of the enemy's max health (25% for a punch, 67% for a ground pound, a twentieth of that on bosses). Strength, Dexterity and weapons play no part. The small real hit the   mod fires for the final blow is a flat 10 damage with stat scaling switched off.
+- Every hit takes a fixed share of the enemy's max health (67% for a punch, a kick or a ground pound, a twentieth of that on bosses). Strength, Dexterity and weapons play no part. The small real hit the   mod fires for the final blow is a flat 10 damage with stat scaling switched off.
 - Mario's health is always the 8 SM64 wedges, whatever your Vigor.
 - Stagger depends on the boss's poise, not on your stats.
 - Stamina, FP, equip load are not used at all.
