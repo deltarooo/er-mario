@@ -138,7 +138,42 @@ pub struct HavokCollision {
     /// bodies skipped for not being in the physics world (diagnostics)
     pub not_in_world: u32,
     queries: u32,
+    /// What the last look at each body slot found (see `Slot`), by body index.
+    slots: Vec<Slot>,
+    /// Meshes too far off to be worth decoding yet: shape address -> (vtable, mesh data, how
+    /// far it can reach).
+    waiting: PlainMap<usize, (usize, usize, f32)>,
 }
+
+/// A body slot as last looked at: its shape and place, and how far its mesh reaches from
+/// there (negative: no mesh to collide with). While both are unchanged, a body further away
+/// than that is passed over on the body table alone, without touching its shape. That's nearly
+/// all of them: the table has tens of thousands of bodies for the hundred or so near Mario,
+/// and looking each one's shape up every time cost 5 to 12 ms a query on an ordinary CPU.
+#[derive(Clone, Copy)]
+struct Slot {
+    shape: usize,
+    at: Vec3,
+    reach: f32,
+}
+
+/// How far ahead of needing it a mesh is decoded (m).
+const AHEAD: f32 = 20.0;
+
+/// How far a compressed mesh can reach from its body's origin, from the box its data keeps its
+/// vertices in (md +0x30 min, +0x40 max), without decoding it.
+fn domain_bound(md: usize) -> Option<f32> {
+    if md == 0 || !readable(md, 0xb0) {
+        return None;
+    }
+    let (lo, hi) = (vec3_at(md + 0x30), vec3_at(md + 0x40));
+    let far = lo.abs().max(hi.abs()).length();
+    (far.is_finite() && far < 100_000.0).then_some(far)
+}
+
+/// One body in this many gets the full look every query whatever its slot says, so a slot
+/// that went stale (its shape's memory reused for another, in the same place) is put right.
+const RECHECK: usize = 16;
 
 
 fn u32_at(a: usize) -> u32 {
@@ -672,6 +707,8 @@ impl HavokCollision {
     pub fn clear_cache(&mut self) {
         self.meshes.clear();
         self.convex.clear();
+        self.slots.clear();
+        self.waiting.clear();
     }
 
     pub fn new(layers: Vec<u32>) -> Self {
@@ -781,6 +818,33 @@ impl HavokCollision {
 
     /// World-space (Havok) triangles near `center` from all allowed bodies.
     pub fn query(&mut self, center: Vec3) -> Option<Vec<(Tri, u32, u32)>> {
+        let out = self.scan(center, true)?;
+        // debug: now and then the same query the long way, every body looked at in full, to
+        // show the slots change nothing
+        if crate::debug() && self.queries % 20 == 3 {
+            let bodies = std::mem::take(&mut self.last_bodies);
+            let t = std::time::Instant::now();
+            let full = self.scan(center, false)?;
+            let key = |v: &[(Tri, u32, u32)]| {
+                let mut k: Vec<(u32, [u32; 9])> = v.iter().map(|(t, _, i)| (*i, [t[0].x, t[0].y, t[0].z, t[1].x, t[1].y, t[1].z, t[2].x, t[2].y, t[2].z].map(f32::to_bits))).collect();
+                k.sort_unstable();
+                k
+            };
+            let same = key(&out) == key(&full);
+            crate::dlog(format!(
+                "havok query check: {} ({} triangles by slots, {} the long way in {:.1} ms)",
+                if same { "same" } else { "DIFFERENT" },
+                out.len(),
+                full.len(),
+                t.elapsed().as_secs_f32() * 1000.0
+            ));
+            self.last_bodies = bodies;
+        }
+        Some(out)
+    }
+
+    /// `query`'s work. `by_slots`: pass far bodies over by their slot (false: look at all).
+    fn scan(&mut self, center: Vec3, by_slots: bool) -> Option<Vec<(Tri, u32, u32)>> {
         let havok = unsafe { CSHavokMan::instance() }.ok()?;
         let base = havok as *const CSHavokMan as usize;
         let pw = read_u64(base + 0x98)? as usize;
@@ -793,7 +857,11 @@ impl HavokCollision {
         self.bodies = bodies;
         self.body_count = count;
         let t_start = std::time::Instant::now();
-        let (mut n_layer_ok, mut n_decoded, mut n_near, mut n_picked) = (0u32, 0u32, 0u32, 0usize);
+        let (mut n_layer_ok, mut n_decoded, mut n_near, mut n_picked, mut n_passed, mut n_waiting) = (0u32, 0u32, 0u32, 0usize, 0u32, 0u32);
+        if self.slots.len() != count {
+            self.slots = vec![Slot { shape: 0, at: Vec3::ZERO, reach: 0.0 }; count];
+        }
+        let phase = self.queries as usize % RECHECK;
         let mut out = Vec::new();
         let mut seen_layers: HashMap<u32, u32> = HashMap::new();
         // (this loop goes over every body in the world, tens of thousands, for the hundred or so
@@ -824,19 +892,28 @@ impl HavokCollision {
                 self.not_in_world += 1;
                 continue;
             }
+            let t = vec3_at(body + 0x30);
+            n_layer_ok += 1;
+            let slot = self.slots[i];
+            if by_slots && i % RECHECK != phase && slot.shape == shape && slot.at == t && (slot.reach < 0.0 || (t - center).length() > slot.reach + RADIUS + BELOW) {
+                n_passed += 1;
+                continue;
+            }
+            // (after that: a set lookup per body, for one or two bodies in it)
             if self.exclude.contains(&(i as u32)) {
                 continue;
             }
-            let t = vec3_at(body + 0x30);
-            n_layer_ok += 1;
+            let none = Slot { shape, at: t, reach: -1.0 };
             // shapes get freed and re-allocated as the world streams: validate the cache entry
             // unknown shapes (and stale pointers in unused body slots) get one real memory check,
             // after which they're cached; known shapes are read directly
             if matches!(self.meshes.get(&shape), Some((0, 0, None))) {
+                self.slots[i] = none;
                 continue;
             }
             if !self.meshes.contains_key(&shape) && !self.convex.contains_key(&shape) && !readable(shape, 0x50) {
                 self.meshes.insert(shape, (0, 0, None));
+                self.slots[i] = none;
                 continue;
             }
             let vtable = unsafe { *(shape as *const usize) };
@@ -849,21 +926,42 @@ impl HavokCollision {
                 None => None,
             };
             let md = unsafe { *((shape + 0x48) as *const usize) };
-            // (no VirtualQuery here: it is a slow Wine server call; memory is validated on decode)
+            // (no memory check here: it is validated on decode)
             let nprims = if convex.is_some() { 0 } else { match self.meshes.get(&shape) {
                 // non-mesh shapes (boxes etc.) are cached as None: nothing to read, skip them
-                Some((cmd, _, None)) if *cmd == md => continue,
+                Some((cmd, _, None)) if *cmd == md => {
+                    self.slots[i] = none;
+                    continue;
+                }
                 Some((cmd, _, Some(_))) if *cmd == md && md != 0 => u32_at(md + 0x78),
                 _ => 0,
             } };
             let mesh = if let Some(m) = convex { m } else { match self.meshes.get(&shape) {
                 Some((cmd, cn, m)) if *cmd == md && *cn == nprims && md != 0 => m.clone(),
                 _ => {
+                    // (one already waiting isn't asked again what it is or how big: its shape's
+                    // class and its data are as they were)
+                    let waited = self.waiting.get(&shape).filter(|w| (w.0, w.1) == (vtable, md)).map(|w| w.2);
+                    let cls = if waited.is_some() { String::new() } else { class_of(shape).unwrap_or_default() };
+                    // A mesh nowhere near waits. Every new shape used to be decoded on sight,
+                    // wherever it was, to learn how far it reaches: a map tile streaming in half
+                    // a kilometre off meant a couple of hundred meshes in one query, 40 to 70 ms.
+                    // Its data has the box all its vertices lie in, which says as much for free.
+                    // It's decoded once Mario is within AHEAD of where it could matter, so they
+                    // come in one at a time as he gets near them.
+                    if waited.is_some() || cls.contains("CompressedMeshShape") {
+                        if let Some(bound) = waited.or_else(|| domain_bound(md)).filter(|b| (t - center).length() > b + RADIUS + BELOW + AHEAD) {
+                            self.waiting.insert(shape, (vtable, md, bound));
+                            self.slots[i] = Slot { shape, at: t, reach: bound + AHEAD };
+                            n_waiting += 1;
+                            continue;
+                        }
+                    }
+                    let cls = if self.waiting.remove(&shape).is_some() { class_of(shape).unwrap_or_default() } else { cls };
                     n_decoded += 1;
                     if self.queries == 0 {
-                        crate::dlog(format!("  decoding body {i} layer {layer:#x} shape {shape:#x} md {md:#x} class {:?}", class_of(shape)));
+                        crate::dlog(format!("  decoding body {i} layer {layer:#x} shape {shape:#x} md {md:#x} class {cls:?}"));
                     }
-                    let cls = class_of(shape).unwrap_or_default();
                     if cls.contains("ConvexPolytopeShape") || cls.contains("BoxShape") || cls.contains("CylinderShape") {
                         let m = decode_convex(shape).filter(|t| !t.is_empty()).map(|t| Arc::new(Mesh::new(t)));
                         self.meshes.remove(&shape);
@@ -913,7 +1011,11 @@ impl HavokCollision {
                     }
                 }
             } };
-            let Some(mesh) = mesh else { continue };
+            let Some(mesh) = mesh else {
+                self.slots[i] = none;
+                continue;
+            };
+            self.slots[i] = Slot { shape, at: t, reach: mesh.radius };
             if (t - center).length() > mesh.radius + RADIUS + BELOW {
                 continue;
             }
@@ -974,7 +1076,7 @@ impl HavokCollision {
         self.queries += 1;
         if self.queries % 10 == 1 {
             crate::dlog(format!(
-                "havok query: {:.1} ms, bodies {count}, layer ok {n_layer_ok}, decoded {n_decoded}, near {n_near}, picked {n_picked}, out {}",
+                "havok query: {:.1} ms, bodies {count}, layer ok {n_layer_ok}, passed by slot {n_passed}, waiting {n_waiting}, decoded {n_decoded}, near {n_near}, picked {n_picked}, out {}",
                 t_start.elapsed().as_secs_f32() * 1000.0, out.len()
             ));
         }
