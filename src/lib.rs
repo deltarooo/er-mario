@@ -1544,6 +1544,9 @@ impl Drop for DrawTimer {
 }
 
 fn frame(data: &FD4TaskData) {
+    if debug() {
+        perf::frame_start();
+    }
     let _span = perf::span(perf::FRAME);
     // outside Mario mode the Tarnished dies like anyone (the flag is set further down, while
     // Mario is alive)
@@ -1558,6 +1561,10 @@ fn frame(data: &FD4TaskData) {
         p.time += data.delta_time.time;
         // (always: a hitch someone reports has to be in a log made without debug mode)
         if p.time >= 2.0 {
+            if debug() {
+                log(format!("perf: parts in the last 2 s ({} frames): {}", p.frames, perf::breakdown()));
+                log(format!("perf: pacing, mario {}: {}", if ENABLED.load(Ordering::Relaxed) { "on" } else { "off" }, perf::pacing()));
+            }
             if let Some(slow) = perf::report() {
                 log(format!("perf: slow in the last 2 s: {slow}"));
             }
@@ -1598,14 +1605,9 @@ fn frame(data: &FD4TaskData) {
             }
             {
                 use std::sync::atomic::Ordering::Relaxed;
-                let (checks, queries, ns) = (explore::CHECKS.swap(0, Relaxed), explore::QUERIES.swap(0, Relaxed), explore::QUERY_NS.swap(0, Relaxed));
+                let (checks, failed) = (explore::CHECKS.swap(0, Relaxed), explore::FAILED.swap(0, Relaxed));
                 let frames = p.frames.max(1) as f64;
-                log(format!(
-                    "perf: memory checks {:.0}/frame, VirtualQuery {:.0}/frame, {:.2} ms/frame",
-                    checks as f64 / frames,
-                    queries as f64 / frames,
-                    ns as f64 / 1e6 / frames
-                ));
+                log(format!("perf: memory checks {:.0}/frame, {failed} said no in the last 2 s", checks as f64 / frames));
             }
             if p.scans > 0 {
                 let per_frame = |ms: f32| ms / p.frames as f32;
@@ -1702,7 +1704,10 @@ fn frame(data: &FD4TaskData) {
             && assets::ready()
             && SM64_READY.load(Ordering::Relaxed)
             && !worker::hung();
-        if grounded && player.chr_ins.modules.data.hp > 0 && (!AUTO_STARTED.swap(true, Ordering::Relaxed) || back) {
+        // (debug, `mario = off` in er_mario.ini: the mod loaded but idle, to compare frame pacing)
+        static IDLE: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
+        let idle = *IDLE.get_or_init(|| debug() && paths::config("mario").is_some_and(|v| v.eq_ignore_ascii_case("off")));
+        if !idle && grounded && player.chr_ins.modules.data.hp > 0 && (!AUTO_STARTED.swap(true, Ordering::Relaxed) || back) {
             ENABLED.store(true, Ordering::Relaxed);
             log(if back { "mario mode ON again" } else { "mario mode ON (default at launch)" });
         }

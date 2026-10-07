@@ -2,91 +2,43 @@
 //! cache of readable regions), raw reads and RTTI class names.
 
 use fromsoftware_shared::UnknownPtr;
-use windows::Win32::System::Memory::{MEM_COMMIT, MEMORY_BASIC_INFORMATION, PAGE_GUARD, PAGE_NOACCESS, VirtualQuery};
+use windows::Win32::System::Memory::IsBadReadPtr;
 
-
-/// Readable regions VirtualQuery reported recently: (start, end, when). Checks inside them don't
-/// ask Windows again for REGION_TTL. VirtualQuery made Mario mode run at ~20 fps on native
-/// Windows (the collision and clutter scans check memory hundreds of times a frame); most
-/// checks land in a few big heap regions.
-static REGIONS: std::sync::Mutex<Vec<(usize, usize, std::time::Instant)>> = std::sync::Mutex::new(Vec::new());
-const REGION_TTL: std::time::Duration = std::time::Duration::from_millis(1500);
-const MAX_REGIONS: usize = 64;
-/// How often the background thread re-checks the known regions (well inside REGION_TTL, so the
-/// game's threads only ever query Windows for regions they haven't seen yet: refreshing them on
-/// expiry made a hitch every half second on slower PCs).
-const REFRESH_EVERY: std::time::Duration = std::time::Duration::from_millis(500);
-
-fn refresher() {
-    loop {
-        std::thread::sleep(REFRESH_EVERY);
-        let known: Vec<(usize, usize)> = REGIONS.lock().unwrap_or_else(|e| e.into_inner()).iter().map(|r| (r.0, r.1)).collect();
-        for (start, end) in known {
-            let mut info = MEMORY_BASIC_INFORMATION::default();
-            let n = unsafe { VirtualQuery(Some(start as *const _), &mut info, size_of::<MEMORY_BASIC_INFORMATION>()) };
-            let still = n != 0
-                && info.State == MEM_COMMIT
-                && info.Protect.0 & (PAGE_NOACCESS.0 | PAGE_GUARD.0) == 0
-                && info.BaseAddress as usize == start
-                && start + info.RegionSize == end;
-            let mut regions = REGIONS.lock().unwrap_or_else(|e| e.into_inner());
-            if still {
-                let now = std::time::Instant::now();
-                for r in regions.iter_mut().filter(|r| r.0 == start) {
-                    r.2 = now;
-                }
-            } else {
-                regions.retain(|r| r.0 != start);
-            }
-        }
-    }
-}
-
-/// Memory check statistics (perf log): checks, VirtualQuery calls, time in VirtualQuery (ns).
+/// Memory check statistics (perf log): checks, and how many said no.
 pub static CHECKS: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
-pub static QUERIES: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
-pub static QUERY_NS: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+pub static FAILED: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
 
-/// True if `len` bytes at `addr` are committed, readable memory.
+/// True if `len` bytes at `addr` can be read.
+///
+/// Windows tries the read itself (IsBadReadPtr: a byte of every page, any fault caught), which
+/// costs next to nothing when the memory is there. This used to ask VirtualQuery and keep the
+/// answers for a while, with a background thread asking again to keep them fresh. But
+/// VirtualQuery sizes up the whole region around an address, and for the game's heaps, gigabytes
+/// of them, that took 24 ms at a time on an ordinary PC (93 at worst) with the process's address
+/// space held meanwhile: the game's own threads stood still for it. Measured as a 135 ms frame
+/// about twice a second with all regions re-checked in one go, 34 ms frames still with the
+/// checks spread out.
 pub fn readable(addr: usize, len: usize) -> bool {
     use std::sync::atomic::Ordering::Relaxed;
     if addr < 0x10000 || addr % 8 != 0 {
         return false;
     }
     CHECKS.fetch_add(1, Relaxed);
-    static REFRESHER: std::sync::Once = std::sync::Once::new();
-    REFRESHER.call_once(|| {
-        std::thread::spawn(refresher);
-    });
-    let now = std::time::Instant::now();
-    let fresh = |r: &(usize, usize, std::time::Instant)| now.duration_since(r.2) < REGION_TTL;
-    {
-        let regions = REGIONS.lock().unwrap_or_else(|e| e.into_inner());
-        if regions.iter().any(|r| fresh(r) && addr >= r.0 && addr.saturating_add(len) <= r.1) {
-            return true;
-        }
+    let probe = |at: usize, n: usize| !unsafe { IsBadReadPtr(Some(at as *const std::ffi::c_void), n) }.as_bool();
+    // A big range (the body table is 5 MB, asked about on every collision query) is tried at
+    // its ends and every 64 KB between, the size Windows hands memory out in: every page of it
+    // was over a thousand reads, a few ms a query.
+    const STEP: usize = 0x10000;
+    let ok = if len <= STEP {
+        probe(addr, len)
+    } else {
+        let end = addr.saturating_add(len);
+        (addr..end - 8).step_by(STEP).all(|at| probe(at, 8)) && probe(end - 8, 8)
+    };
+    if !ok {
+        FAILED.fetch_add(1, Relaxed);
     }
-    // (outside the lock: checks run on several threads, some of them the game's own workers,
-    // and must never wait behind a slow VirtualQuery)
-    let mut info = MEMORY_BASIC_INFORMATION::default();
-    let n = unsafe { VirtualQuery(Some(addr as *const _), &mut info, size_of::<MEMORY_BASIC_INFORMATION>()) };
-    QUERIES.fetch_add(1, Relaxed);
-    QUERY_NS.fetch_add(now.elapsed().as_nanos() as u64, Relaxed);
-    if n == 0 || info.State != MEM_COMMIT {
-        return false;
-    }
-    if info.Protect.0 & (PAGE_NOACCESS.0 | PAGE_GUARD.0) != 0 {
-        return false;
-    }
-    let start = info.BaseAddress as usize;
-    let end = start + info.RegionSize;
-    let mut regions = REGIONS.lock().unwrap_or_else(|e| e.into_inner());
-    regions.retain(|r| fresh(r) && r.0 != start);
-    if regions.len() >= MAX_REGIONS {
-        regions.remove(0);
-    }
-    regions.push((start, end, now));
-    addr + len <= end
+    ok
 }
 
 pub fn read_u64(addr: usize) -> Option<u64> {
