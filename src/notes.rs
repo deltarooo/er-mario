@@ -16,12 +16,8 @@ const NOTES: &str = concat!(
     "ER Mario ",
     env!("CARGO_PKG_VERSION"),
     " Patch notes:\n\n",
-    "* Fixed the stutter framedrops many players had, especially on Windows.\n",
-    "* Fixed Mario flicking between two directions with some controllers.\n",
-    "* Fixed Yoshi not moving with keyboard controls.\n",
-    "* Fewer hitches when new areas load.\n",
-    "* Mario loses 2 pieces of health at most per hit.\n",
-    "* Punches and kicks do as much damage as ground pounds, and more on bosses."
+    "* Fixed Mario and the HUD switching off on slower PCs when the game stalls while loading.\n",
+    "* Stuck somewhere? Hold F1 for 3 seconds to die and respawn at the last grace."
 );
 
 /// Which version's notes were shown last.
