@@ -3,16 +3,21 @@
 //! The game thread sends jobs and waits at most `TIMEOUT` for each. If a job doesn't come
 //! back in time, libsm64 is declared hung: every later call returns `None` right away and
 //! the mod switches Mario mode off (the stuck thread is simply abandoned).
+//!
+//! `TIMEOUT` was 100 ms once. A PC that stalls while the world loads in can keep the thread
+//! waiting longer than that with nothing wrong in SM64: Mario was off for the whole session.
 
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::mpsc::{self, Sender};
 use std::sync::{Mutex, OnceLock};
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use crate::log;
 use crate::sm64::Geometry;
 
-const TIMEOUT: Duration = Duration::from_millis(100);
+const TIMEOUT: Duration = Duration::from_secs(3);
+/// a call this long is worth a line in the log
+const SLOW: Duration = Duration::from_millis(100);
 
 pub struct Ctx {
     pub geo: Geometry,
@@ -58,8 +63,15 @@ pub fn call_timeout<R: Send + 'static>(
         let _ = rtx.send(f(ctx));
     });
     sender().lock().unwrap_or_else(|e| e.into_inner()).send(job).ok()?;
+    let sent = Instant::now();
     match rrx.recv_timeout(timeout) {
-        Ok(r) => Some(r),
+        Ok(r) => {
+            let took = sent.elapsed();
+            if took > SLOW && timeout <= TIMEOUT {
+                log(format!("libsm64 slow in `{name}`: {} ms", took.as_millis()));
+            }
+            Some(r)
+        }
         Err(_) => {
             HUNG.store(true, Ordering::Relaxed);
             log(format!("libsm64 HUNG in `{name}` (> {} ms); Mario disabled until restart", timeout.as_millis()));
