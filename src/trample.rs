@@ -5,7 +5,7 @@ use std::collections::HashMap;
 use std::sync::Mutex;
 use std::time::Instant;
 
-use eldenring::cs::{FieldInsHandle, WorldChrMan};
+use eldenring::cs::{ChrIns, FieldInsHandle, WorldChrMan};
 use eldenring::position::HavokPosition;
 use fromsoftware_shared::FromStatic;
 use glam::Vec3;
@@ -43,7 +43,8 @@ static FLUNG: Mutex<Vec<Flung>> = Mutex::new(Vec::new());
 static RECENT: Mutex<Option<HashMap<u64, Instant>>> = Mutex::new(None);
 
 /// Every frame. `charge`: where Yoshi is and how fast he's going, while he's at full speed.
-pub fn update(combat: &mut Combat, tick: u32, dt: f32, charge: Option<(Vec3, Vec3)>) {
+/// `player`: the rider, whose blow the strong ones get.
+pub fn update(combat: &mut Combat, player: &ChrIns, tick: u32, dt: f32, charge: Option<(Vec3, Vec3)>) {
     let _timed = crate::yoshi::Timed(2, Instant::now());
     let mut flung = FLUNG.lock().unwrap_or_else(|e| e.into_inner());
     if let Some((at, vel)) = charge {
@@ -59,7 +60,12 @@ pub fn update(combat: &mut Combat, tick: u32, dt: f32, charge: Option<(Vec3, Vec
             combat::impact(combat, &handle, if strong { HIT_STRONG } else { HIT }, tick);
             crate::worker::call("trample sound", |_| unsafe { crate::sm64::sm64_play_sound_global(SOUND_BUMP) });
             log(format!("trample: ran into {} at {:.1} m/s", if strong { "a big or strong enemy" } else { "an enemy" }, vel.length()));
-            if !strong {
+            // the strong ones stay on their feet and get a real hit as well, which is what
+            // kills them at their last point. Not the others: they go limp, and the game takes
+            // a hit on a ragdoll for a kill
+            if strong {
+                combat.blow(player, &handle);
+            } else {
                 flung.push(Flung { handle, vel: vel * CARRY + Vec3::Y * LIFT, since: Instant::now(), limp: false });
             }
         }

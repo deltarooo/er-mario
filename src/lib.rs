@@ -339,6 +339,8 @@ struct MarioState {
     moving: moving::Moving,
     /// ticks the player pushed the stick while Mario didn't move (stuck inside geometry)
     stuck_ticks: u32,
+    /// time in the saddle not yet counted as ticks
+    ride_acc: f32,
     prev_parts: Option<[engine_mario::PartPose; engine_mario::PARTS]>,
 }
 
@@ -1961,6 +1963,7 @@ fn frame(data: &FD4TaskData) {
             dead: false,
             moving,
             stuck_ticks: 0,
+            ride_acc: 0.0,
             prev_parts: None,
         }
     });
@@ -2782,7 +2785,7 @@ fn frame(data: &FD4TaskData) {
         }
         torrent_cant_die();
         yoshi::tick();
-        trample::update(&mut m.combat, m.ticks, data.delta_time.time, yoshi::charge());
+        trample::update(&mut m.combat, &player_ref.chr_ins, m.ticks, data.delta_time.time, yoshi::charge());
         // the whistle itself isn't heard: Yoshi answers in its place (yoshi::call)
         if matches!(cur, 50190 | 50191) && yoshi::active() {
             let chr = &player_ref.chr_ins as *const eldenring::cs::ChrIns as *mut eldenring::cs::ChrIns;
@@ -2814,6 +2817,15 @@ fn frame(data: &FD4TaskData) {
         // hits throw him off). The SM64 tick that turns the Tarnished's lost health into Mario's
         // doesn't run while the game drives, so it's done here: wedges off, his HP back to full.
         if riding && !m.dead {
+            // SM64's ticks stand still in the saddle, and the final blow on a boss Yoshi ran
+            // down to his last point is counted in them and dealt from Mario's own attacks:
+            // trampled again and again, the boss stood there at 1 HP
+            m.ride_acc += data.delta_time.time.min(0.25);
+            while m.ride_acc >= 1.0 / 30.0 {
+                m.ride_acc -= 1.0 / 30.0;
+                m.ticks += 1;
+            }
+            m.combat.finish(&player_ref.chr_ins, m.ticks);
             let (hp, max) = (player_ref.chr_ins.modules.data.hp, player_ref.chr_ins.modules.data.max_hp);
             let wedges = match m.combat.took_damage(hp, max, combat::last_attacker(&player_ref.chr_ins).1) {
                 Some(combat::Hurt::Hit(n)) => n as i32,

@@ -733,15 +733,15 @@ pub fn hits(id: i32, state: &sm64::SM64MarioState, targets: &[([f32; 3], f32, f3
 }
 
 impl Combat {
-    /// Game thread: deals the damage for libsm64's hits. `tick` is the SM64 tick counter.
-    pub fn deal(&mut self, player: &ChrIns, targets: &[Target], hits: &[(usize, Attack, bool)], tick: u32) {
+    /// Game thread: the final blow on whoever Mario (or Yoshi) left at their last point. Also
+    /// run from the saddle, where `deal` isn't. False: the attack rows couldn't be set up yet.
+    pub fn finish(&mut self, player: &ChrIns, tick: u32) -> bool {
         if !self.patched {
             self.patched = patch_params();
             if !self.patched {
-                return;
+                return false;
             }
         }
-        self.cooldown.retain(|_, t| tick.wrapping_sub(*t) < 12);
         {
             let mut until = FINISHER_UNTIL.lock().unwrap_or_else(|e| e.into_inner());
             if until.is_some_and(|u| tick.wrapping_sub(u) < u32::MAX / 2) {
@@ -836,6 +836,28 @@ impl Combat {
             log(format!("combat: final blow missed, finished directly (c{:04})", chr.character_id));
             false
         });
+        true
+    }
+
+    /// A real hit on `handle` that isn't one of Mario's own moves (Yoshi running it down): the
+    /// game's own blow with the fist's attack, like the one every hit of Mario's comes with.
+    /// It's what ends a boss the share of health left at his last point.
+    pub fn blow(&mut self, player: &ChrIns, handle: &FieldInsHandle) {
+        if !self.patched {
+            return;
+        }
+        let Some(at) = unsafe { WorldChrMan::instance() }.ok().and_then(|w| w.chr_ins_by_handle(handle)).map(|c| c.modules.physics.position) else { return };
+        let (bullet, ..) = Attack::Dash.spec();
+        let result = strike(player, &at, bullet);
+        log(format!("combat: trample -> bullet {bullet}: {result}"));
+    }
+
+    /// Game thread: deals the damage for libsm64's hits. `tick` is the SM64 tick counter.
+    pub fn deal(&mut self, player: &ChrIns, targets: &[Target], hits: &[(usize, Attack, bool)], tick: u32) {
+        if !self.finish(player, tick) {
+            return;
+        }
+        self.cooldown.retain(|_, t| tick.wrapping_sub(*t) < 12);
         for &(index, attack, diving) in hits {
             let Some(target) = targets.get(index) else { continue };
             if self.cooldown.contains_key(&target.key) {
