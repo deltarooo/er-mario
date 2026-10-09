@@ -71,6 +71,7 @@ const COLLISION_LAYERS: [u32; 11] = [0x1e, 0x2e, 0x37, 0x38, 0x39, 0x3a, 0x46, 0
 /// Raycast filter for the ground probes.
 const RAY_FILTER: u32 = 0x08;
 /// Lifts Mario 1 m (out of places he's stuck in).
+const VK_F1: i32 = 0x70;
 const VK_F7: i32 = 0x76;
 
 static ENABLED: AtomicBool = AtomicBool::new(false);
@@ -1996,6 +1997,19 @@ fn frame(data: &FD4TaskData) {
             gameover::STARTED.store(true, Ordering::Relaxed);
         } else if !f3 {
             F3_WAS.store(false, Ordering::Relaxed);
+        }
+    }
+    // F1 held for 3 s: the Tarnished dies (stuck where nothing else helps, under a lift for one)
+    {
+        static HELD: Mutex<Option<std::time::Instant>> = Mutex::new(None);
+        let mut held = HELD.lock().unwrap_or_else(|e| e.into_inner());
+        let f1 = kbd::focused() && !MENU_OPEN.load(Ordering::Relaxed) && unsafe { GetAsyncKeyState(VK_F1) } as u16 & 0x8000 != 0;
+        if !f1 || m.dead {
+            *held = None;
+        } else if held.get_or_insert_with(std::time::Instant::now).elapsed().as_secs_f32() >= 3.0 {
+            *held = None;
+            log("F1 held for 3 s: the Tarnished dies");
+            set_player_hp(0);
         }
     }
     // SM64's camera (F9 switches to Elden Ring's): Elden Ring's own for cutscenes, doors, deaths

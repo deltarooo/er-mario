@@ -38,6 +38,8 @@ work through Steam Input, which Steam turns on for them by default.
 camera and back. To start with Elden Ring's camera, set `camera = elden` in **er_mario.ini** in
 your ER-Mario folder.
 
+**Stuck?** Hold **F1** for 3 seconds: you die and wake up at the last grace.
+
 **LEVELING AND ITEMS DO NOT AFFECT ANYTHING**:
 - Every hit takes a fixed share of the enemy's max health (67% for a punch, a kick or a ground pound, a twentieth of that on bosses). Strength, Dexterity and weapons play no part. The small real hit the   mod fires for the final blow is a flat 10 damage with stat scaling switched off.
 - Mario's health is always the 8 SM64 wedges, whatever your Vigor.
