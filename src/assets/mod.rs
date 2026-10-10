@@ -109,8 +109,17 @@ pub fn check() -> bool {
 
 fn write(rel: &str, data: &[u8]) -> Result<(), String> {
     let path: PathBuf = paths::file(rel);
-    if let Some(dir) = path.parent() {
-        std::fs::create_dir_all(dir).map_err(|e| format!("{}: {e}", dir.display()))?;
+    // The folders one by one from the mod's own down, whatever each attempt answers. Not
+    // create_dir_all: it goes by the error code to tell "the parent is missing" from the rest,
+    // and on one player's PC that code came back as "already exists" for a folder that wasn't
+    // there. Nothing was created and the build stopped. If a folder really can't be made, the
+    // write below fails and names the file.
+    let mut dir = paths::mod_dir().to_path_buf();
+    let mut parts: Vec<&str> = rel.split('/').collect();
+    parts.pop();
+    for part in parts {
+        dir.push(part);
+        let _ = std::fs::create_dir(&dir);
     }
     let tmp = path.with_extension("tmp");
     std::fs::write(&tmp, data).and_then(|_| std::fs::rename(&tmp, &path)).map_err(|e| format!("{}: {e}", path.display()))
