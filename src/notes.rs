@@ -16,8 +16,10 @@ const NOTES: &str = concat!(
     "ER Mario ",
     env!("CARGO_PKG_VERSION"),
     " Patch notes:\n\n",
-    "* Fixed Mario and the HUD switching off on slower PCs when the game stalls while loading.\n",
-    "* Stuck somewhere? Hold F1 for 3 seconds to die and respawn at the last grace."
+    "* Works with the latest Elden Ring patch (1.17.2).\n",
+    "* Fixed bosses not dying when Yoshi runs them down to their last bit of health.\n",
+    "* Mario's sounds now follow you when you switch audio devices.\n",
+    "* Fixed the first launch failing for some players."
 );
 
 /// Which version's notes were shown last.
