@@ -110,7 +110,7 @@ pub unsafe fn install_hook() {
     use ilhook::x64::{CallbackOption, HookFlags, hook_closure_retn};
     // CSMenuManImp::display_status_message (fromsoftware-rs keeps its RVA table private; same RVA in
     // its WW and JP tables for the supported game version, see version.rs)
-    const DISPLAY_STATUS_MESSAGE_RVA: u32 = 0x7671f0;
+    const DISPLAY_STATUS_MESSAGE_RVA: u32 = 0x7676a0;
     let Ok(base) = (unsafe { windows::Win32::System::LibraryLoader::GetModuleHandleW(None) }) else {
         log("gameover: game module not found");
         return;

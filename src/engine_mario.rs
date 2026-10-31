@@ -185,7 +185,7 @@ fn pose_layout(chr: usize, raw: impl Fn(usize) -> usize) -> Option<PoseLayout> {
 /// watchpoint on a bone; run for every character, on the game's worker threads): right after the call that
 /// writes the model pose (the job goes on to hand the bones to rendering, so later is too late),
 /// and the job's return as a fallback.
-const ANIM_DONE_RVAS: [usize; 2] = [0x41da14, 0x402194];
+const ANIM_DONE_RVAS: [usize; 2] = [0x41daa4, 0x402224];
 
 /// The renderer draws the previous frame while the next one updates: without this, Mario's bones
 /// sit in the Tarnished's animated pose from the animation job until our next task runs, and
@@ -302,7 +302,7 @@ pub fn stand_for_picture() {
 
 /// hkaPose::syncModelSpace: every skeleton's model pose goes through it, the menus' too (the
 /// character creation preview isn't a ChrIns and never reaches the animation job above).
-const SYNC_MODEL_RVA: usize = 0x16551c0;
+const SYNC_MODEL_RVA: usize = 0x16568b0;
 const SYNC_MODEL_CODE: [u8; 10] = [0x48, 0x83, 0xec, 0x18, 0x80, 0x79, 0x38, 0x00, 0x0f, 0x85];
 
 pub unsafe fn install_menu_hook() {
@@ -368,7 +368,7 @@ pub unsafe fn install_menu_hook() {
 /// CSMenuAsmModelRend's update (its task at +0xe0 calls it every frame): the menus' character
 /// models. Character creation keeps four alive, a dressed and a bare one per body type, and shows
 /// one of them.
-const REND_UPDATE_RVA: usize = 0xbbbe00;
+const REND_UPDATE_RVA: usize = 0xbbc2c0;
 const REND_UPDATE_CODE: [u8; 16] = [0x48, 0x89, 0x5c, 0x24, 0x08, 0x57, 0x48, 0x83, 0xec, 0x20, 0x48, 0x8b, 0xd9, 0x48, 0x8b, 0xfa];
 /// The renderers updated lately: (address, first seen, last seen).
 static RENDS: Mutex<Vec<(usize, std::time::Instant, std::time::Instant)>> = Mutex::new(Vec::new());

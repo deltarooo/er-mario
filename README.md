@@ -128,7 +128,7 @@ keeps libsm64's own license, CC0 ([libsm64/LICENSE.md](libsm64/LICENSE.md)).
 
 - [libsm64](https://github.com/libsm64/libsm64) (CC0) by the libsm64 contributors, built on the
   [Super Mario 64 decompilation](https://github.com/n64decomp/sm64) by the n64decomp team
-- [fromsoftware-rs](https://github.com/vswarte/fromsoftware-rs) (MIT / Apache-2.0) by Vincent
+- [fromsoftware-rs](https://github.com/vswarte/fromsoftware-rs) (MIT NON-AI / Apache NON-AI) by Vincent
   Swarte and contributors
 - [me3](https://me3.help) by the me3 team
 - [hudhook](https://github.com/veeenu/hudhook) (MIT) by veeenu, for the overlay HUD
